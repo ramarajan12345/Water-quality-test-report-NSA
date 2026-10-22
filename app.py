@@ -29,10 +29,34 @@ def init_data():
 
 init_data()
 
+EXPECTED_COLUMNS = [
+    "Record_ID", "Date", "Client_Block", "Sample_Name", "Sample_Source",
+    "Technician", "pH", "DO_mgL", "Alkalinity", "Ammonia_TAN", "Nitrate",
+    "Nitrite", "Phosphorus", "TSS", "EC", "TDS", "Plankton_Observed",
+    "Plankton_Prevalence", "Total_Vibrios", "Total_Coliforms_TPC",
+    "Luminescent_Vibrios", "Risk_Status", "Remarks"
+]
+
 def load_data():
-    return pd.read_csv(DATA_FILE)
+    """Load records safely and ensure the expected columns are available."""
+    if not os.path.exists(DATA_FILE) or os.path.getsize(DATA_FILE) == 0:
+        return pd.DataFrame(columns=EXPECTED_COLUMNS)
+
+    try:
+        df = pd.read_csv(DATA_FILE)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError):
+        st.error("The records CSV could not be read. Please check the data file or restore a backup.")
+        return pd.DataFrame(columns=EXPECTED_COLUMNS)
+
+    for column in EXPECTED_COLUMNS:
+        if column not in df.columns:
+            df[column] = pd.NA
+
+    return df[EXPECTED_COLUMNS]
 
 def save_data(df):
+    """Save records using the standard column order."""
+    df = df.reindex(columns=EXPECTED_COLUMNS)
     df.to_csv(DATA_FILE, index=False)
 
 # Official Central Lab Report PDF Generator Function
@@ -217,7 +241,18 @@ with tab1:
                 st.warning("தயவுசெய்து டெக்னீஷியன் பெயரை உள்ளிடவும்!")
             else:
                 df = load_data()
-                new_id = f"WQ-{len(df) + 1}"
+                # Generate the next ID from existing IDs so deleted rows do not
+                # cause an ID collision.
+                existing_numbers = (
+                    df["Record_ID"].astype(str)
+                    .str.extract(r"^WQ-(\d+)$")[0]
+                    .dropna()
+                )
+                next_number = (
+                    int(existing_numbers.astype(int).max()) + 1
+                    if not existing_numbers.empty else 1
+                )
+                new_id = f"WQ-{next_number}"
                 
                 # Risk Analysis Auto Logic
                 risk = "Safe (Green)"
@@ -257,7 +292,7 @@ with tab2:
             else:
                 return 'background-color: #d4edda; color: #155724;'
 
-        styled_df = df.style.applymap(highlight_risk, subset=['Risk_Status'])
+        styled_df = df.style.map(highlight_risk, subset=['Risk_Status'])
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 # ==========================================
